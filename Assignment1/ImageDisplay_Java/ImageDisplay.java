@@ -94,6 +94,7 @@ public class ImageDisplay {
 	public static void main(String[] args) {
 		ImageDisplay ren = new ImageDisplay();
 		ren.showIms(args);
+
 	}
 
 }
