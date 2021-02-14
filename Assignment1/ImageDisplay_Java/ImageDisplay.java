@@ -240,7 +240,9 @@ public class ImageDisplay {
 				{
 					next = previous;
 				}
-				result[i] = (inputArray[previous] + inputArray[next]) / 2;
+				result[i] = (result[previous] + result[next]) / 2;
+//				System.out.printf("previous %s %s next %s %s%n", previous, result[previous], next, result[next]);
+//				result[i] = 0;
 			}
 		}
 
