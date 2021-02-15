@@ -303,19 +303,19 @@ public class ImageDisplay {
 			value = 255.0d;
 		}
 
-		int step = 256 / q;
+		double step = 255.0d / q;
+		int newValue = 255;
+		double minDiff = 999;
+		for (int i=0; i<q; i++)
+		{
+			int l = (int) (step * i);
+			if (Math.abs((double) l- value) < minDiff)
+			{
+				minDiff = Math.abs((double) l- value);
+				newValue = l;
+			}
+		}
 
-		int multiple = (int) Math.round(value / (double) step);
-		int newValue = step * multiple;
-//		System.out.println(newValue);
-		if(newValue < 0)
-		{
-			newValue = 0;
-		}
-		if(newValue > 255)
-		{
-			newValue = 255;
-		}
 		return newValue;
 	}
 
@@ -328,10 +328,10 @@ public class ImageDisplay {
 		String paramV = args[3];
 		String paramQ = args[4];
 		System.out.println("Image path: " + imgPath);
-		System.out.println("The Y parameter was: " + paramY);
-		System.out.println("The U parameter was: " + paramU);
-		System.out.println("The V parameter was: " + paramV);
-		System.out.println("The Q parameter was: " + paramQ);
+		System.out.println("The Y parameter was: " + Integer.parseInt(paramY));
+		System.out.println("The U parameter was: " + Integer.parseInt(paramU));
+		System.out.println("The V parameter was: " + Integer.parseInt(paramV));
+		System.out.println("The Q parameter was: " + Integer.parseInt(paramQ));
 
 		// Read in the specified image
 		imgOne = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
@@ -343,6 +343,7 @@ public class ImageDisplay {
 		int[][][] rgbImg = convertImgByteToRGB(width, height, imgBytes);
 		double[][][] yuvImg = convertImgToYUV(rgbImg, Integer.parseInt(paramY), Integer.parseInt(paramU), Integer.parseInt(paramV));
 		int[][][] finalImg = convertImgToRGB(yuvImg, Integer.parseInt(paramQ));
+		// calculateColorCount(finalImg);
 		readImageIntoBuffer(finalImg, img2);
 
 		// Use label to display the image
