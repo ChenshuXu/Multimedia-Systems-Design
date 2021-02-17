@@ -343,7 +343,6 @@ public class ImageDisplay {
 		int[][][] rgbImg = convertImgByteToRGB(width, height, imgBytes);
 		double[][][] yuvImg = convertImgToYUV(rgbImg, Integer.parseInt(paramY), Integer.parseInt(paramU), Integer.parseInt(paramV));
 		int[][][] finalImg = convertImgToRGB(yuvImg, Integer.parseInt(paramQ));
-		// calculateColorCount(finalImg);
 		readImageIntoBuffer(finalImg, img2);
 
 		// Use label to display the image
