@@ -10,8 +10,8 @@ public class ImageDisplay {
 	JFrame frame;
 	JLabel lbIm1;
 	JLabel lbIm2;
-	BufferedImage imgOne;
-	BufferedImage img2;
+	BufferedImage originalImg;
+	BufferedImage processedImg;
 	int width = 512;
 	int height = 512;
 	double [][] RGBtoYUV = {
@@ -24,52 +24,6 @@ public class ImageDisplay {
 			{1.000d, -0.272d, -0.647d},
 			{1.000d, -1.106d, 1.703d}
 	};
-
-	/**
-	 * Read Image RGB
-	 * Reads the image of given width and height at the given imgPath into the provided BufferedImage.
-	 */
-	private void readImageRGB(int width, int height, String imgPath, BufferedImage img)
-	{
-		try
-		{
-			int frameLength = width*height*3;
-
-			File file = new File(imgPath);
-			RandomAccessFile raf = new RandomAccessFile(file, "r");
-			raf.seek(0);
-
-			long len = frameLength;
-			byte[] bytes = new byte[(int) len];
-
-			raf.read(bytes);
-
-			int ind = 0;
-			for(int y = 0; y < height; y++)
-			{
-				for(int x = 0; x < width; x++)
-				{
-					byte a = 0;
-					byte r = bytes[ind];
-					byte g = bytes[ind+height*width];
-					byte b = bytes[ind+height*width*2]; 
-
-					int pix = 0xff000000 | ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
-					// int pix = ((a << 24) + (r << 16) + (g << 8) + b);
-					img.setRGB(x,y,pix);
-					ind++;
-				}
-			}
-		}
-		catch (FileNotFoundException e) 
-		{
-			e.printStackTrace();
-		} 
-		catch (IOException e) 
-		{
-			e.printStackTrace();
-		}
-	}
 
 	private byte[] readImg(int width, int height, String imgPath)
 	{
@@ -151,7 +105,7 @@ public class ImageDisplay {
 	 * @param img: RGB image
 	 * @return YUV image
 	 */
-	private double[][][] convertImgToYUV(int[][][] img, int paramY, int paramU, int paramV)
+	private double[][][] convertImgRGBToYUV(int[][][] img, int paramY, int paramU, int paramV)
 	{
 		int height = img.length; // rows
 		int width = img[0].length; // cols
@@ -255,7 +209,7 @@ public class ImageDisplay {
 	 * @param q: quantization
 	 * @return RGB image
 	 */
-	private int[][][] convertImgToRGB(double[][][] img, int q)
+	private int[][][] convertImgYUVToRGB(double[][][] img, int q)
 	{
 		int height = img.length; // rows
 		int width = img[0].length; // cols
@@ -319,39 +273,210 @@ public class ImageDisplay {
 		return newValue;
 	}
 
+	/**
+	 * convert rgb values to hsv values
+	 * @param R
+	 * @param G
+	 * @param B
+	 * @return h:[0, 360] s:[0, 100] v:[0, 100]
+	 */
+	private double[] convertRGBtoHSV(int R, int G, int B)
+	{
+		// R, G, B values are divided by 255
+		// to change the range from 0..255 to 0..1
+		double r = R / 255.0d;
+		double g = G / 255.0d;
+		double b = B / 255.0d;
+
+		// h, s, v = hue, saturation, value
+		double cmax = Math.max(r, Math.max(g, b)); // maximum of r, g, b
+		double cmin = Math.min(r, Math.min(g, b)); // minimum of r, g, b
+		double diff = cmax - cmin; // diff of cmax and cmin.
+		double h = -1, s = -1;
+		double v = cmax * 100.0d;
+
+		if (cmax != 0)
+		{
+			s = (diff / cmax) * 100.0d;
+		}
+		else
+		{
+			// s = 0, v is undefined
+			s = 0;
+			h = -1;
+			return new double[]{h, s, v};
+		}
+
+		// if cmax and cmax are equal then h = 0
+		if (cmax == cmin)
+		{
+			h = 0;
+		}
+		else if (cmax == r)
+		{
+			// between yellow & magenta
+			h = (60 * ((g - b) / diff) + 360) % 360;
+		}
+		else if (cmax == g)
+		{
+			// between cyan & yellow
+			h = (60 * ((b - r) / diff) + 120) % 360;
+		}
+		else if (cmax == b)
+		{
+			// between magenta & cyan
+			h = (60 * ((r - g) / diff) + 240) % 360;
+		}
+
+//		System.out.println("(" + h + " " + s + " " + v + ")");
+
+		return new double[]{h, s, v};
+	}
+
+	/**
+	 * convert hsv values to rgb values
+	 * h:[0, 360] s:[0, 100] v:[0, 100]
+	 * @param H
+	 * @param S
+	 * @param V
+	 * @return
+	 */
+	private int[] convertHSVtoRGB(double H, double S, double V)
+	{
+		int[] rgb = new int[3];
+		double s = S / 100.0d;
+		double v = V / 100.0d;
+		if(v == 0)
+		{
+			// achromatic (grey)
+			int greyScale = Math.max(0, Math.min((int)Math.round(v * 255), 255));
+			rgb[0] = greyScale;
+			rgb[1] = greyScale;
+			rgb[2] = greyScale;
+			return rgb;
+		}
+
+		int i;
+		double f, p, q, t;
+		double r, g, b;
+		// sector 0 to 5
+		double h = H / 60.0d;
+		i = (int)Math.floor(h);
+		f = h - i; // factorial part of h
+		p = v * ( 1 - s );
+		q = v * ( 1 - s * f );
+		t = v * ( 1 - s * ( 1 - f ) );
+		switch (i) {
+			case 0 -> {
+				r = v;
+				g = t;
+				b = p;
+			}
+			case 1 -> {
+				r = q;
+				g = v;
+				b = p;
+			}
+			case 2 -> {
+				r = p;
+				g = v;
+				b = t;
+			}
+			case 3 -> {
+				r = p;
+				g = q;
+				b = v;
+			}
+			case 4 -> {
+				r = t;
+				g = p;
+				b = v;
+			}
+			// case 5:
+			default -> {
+				r = v;
+				g = p;
+				b = q;
+			}
+		}
+		rgb[0] = Math.max(0, Math.min((int)Math.round(r * 255), 255));
+		rgb[1] = Math.max(0, Math.min((int)Math.round(g * 255), 255));
+		rgb[2] = Math.max(0, Math.min((int)Math.round(b * 255), 255));
+
+		return rgb;
+	}
+
+	private int[] convertRGBtoGreyscale(int R, int G, int B)
+	{
+		int[] rgb = new int[3];
+		int greyScale = Math.max(0, Math.min((int)Math.round(0.299d * R + 0.587d * G + 0.114d * B), 255));
+		rgb[0] = greyScale;
+		rgb[1] = greyScale;
+		rgb[2] = greyScale;
+		return rgb;
+	}
+
+	private int[][][] filterImg(int[][][] img, double h1, double h2)
+	{
+		int height = img.length; // rows
+		int width = img[0].length; // cols
+		int[][][] result = new int[height][width][3];
+		for (int y = 0; y < height; y++)
+		{
+			for (int x = 0; x < width; x++)
+			{
+				int r = img[y][x][0];
+				int g = img[y][x][1];
+				int b = img[y][x][2];
+				double[] hsv = convertRGBtoHSV(r, g, b);
+				double h = hsv[0];
+				if (h < h2 && h > h1)
+				{
+					result[y][x][0] = r;
+					result[y][x][1] = g;
+					result[y][x][2] = b;
+				}
+				else
+				{
+					// System.out.println("(" + h + " " + hsv[1] + " " + hsv[2] + ")");
+					// result[y][x] = convertRGBtoGreyscale(r, g, b);
+					result[y][x] = convertHSVtoRGB(h, 0.0d, hsv[2]);
+				}
+			}
+		}
+		return result;
+	}
+
 	public void showIms(String[] args)
 	{
 		// Read a parameter from command line
 		String imgPath = args[0];
-		String paramY = args[1];
-		String paramU = args[2];
-		String paramV = args[3];
-		String paramQ = args[4];
+		String paramH1 = args[1];
+		String paramH2 = args[2];
 		System.out.println("Image path: " + imgPath);
-		System.out.println("The Y parameter was: " + Integer.parseInt(paramY));
-		System.out.println("The U parameter was: " + Integer.parseInt(paramU));
-		System.out.println("The V parameter was: " + Integer.parseInt(paramV));
-		System.out.println("The Q parameter was: " + Integer.parseInt(paramQ));
+		System.out.println("The h1 parameter was: " + Integer.parseInt(paramH1));
+		System.out.println("The h2 parameter was: " + Integer.parseInt(paramH2));
 
-		// Read in the specified image
-		imgOne = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-		readImageRGB(width, height, args[0], imgOne);
+		// Read in the original image
+		originalImg = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+		byte[] originalImgBytes = readImg(width, height, imgPath);
+		int[][][] originalRGBImg = convertImgByteToRGB(width, height, originalImgBytes);
+		readImageIntoBuffer(originalRGBImg, originalImg);
 
 		// Processed image
-		img2 = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+		processedImg = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
 		byte[] imgBytes = readImg(width, height, imgPath);
 		int[][][] rgbImg = convertImgByteToRGB(width, height, imgBytes);
-		double[][][] yuvImg = convertImgToYUV(rgbImg, Integer.parseInt(paramY), Integer.parseInt(paramU), Integer.parseInt(paramV));
-		int[][][] finalImg = convertImgToRGB(yuvImg, Integer.parseInt(paramQ));
-		readImageIntoBuffer(finalImg, img2);
+		int[][][] finalImg = filterImg(rgbImg, Double.parseDouble(paramH1), Double.parseDouble(paramH2));
+		readImageIntoBuffer(finalImg, processedImg);
 
 		// Use label to display the image
 		frame = new JFrame();
 		GridBagLayout gLayout = new GridBagLayout();
 		frame.getContentPane().setLayout(gLayout);
 
-		lbIm1 = new JLabel(new ImageIcon(imgOne));
-		lbIm2 = new JLabel(new ImageIcon(img2));
+		lbIm1 = new JLabel(new ImageIcon(originalImg));
+		lbIm2 = new JLabel(new ImageIcon(processedImg));
 
 		GridBagConstraints c = new GridBagConstraints();
 		c.fill = GridBagConstraints.HORIZONTAL;
