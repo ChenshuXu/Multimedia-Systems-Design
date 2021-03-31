@@ -2,6 +2,7 @@
 import java.awt.*;
 import java.awt.image.*;
 import java.io.*;
+import java.util.Arrays;
 import javax.swing.*;
 
 
@@ -10,8 +11,10 @@ public class ImageDisplay {
 	JFrame frame;
 	JLabel lbIm1;
 	JLabel lbIm2;
+	JLabel lbIm3;
 	BufferedImage originalImg;
 	BufferedImage processedImg;
+	BufferedImage processedImg2;
 	int width = 512;
 	int height = 512;
 	double [][] RGBtoYUV = {
@@ -72,6 +75,35 @@ public class ImageDisplay {
 				int pix = ((a << 24) + (r << 16) + (g << 8) + b);
 				buffer.setRGB(x,y,pix);
 			}
+		}
+	}
+
+
+	private void printDoubleMatrix(double[][] matrix)
+	{
+		int row = matrix.length;
+		int col = matrix[0].length;
+		int r, c;
+		for (r = 0; r < row; r++)
+		{
+			for (c = 0; c < col; c++) {
+				System.out.printf("%f\t", matrix[r][c]);
+			}
+			System.out.println();
+		}
+	}
+
+	private void printIntMatrix(int[][] matrix)
+	{
+		int row = matrix.length;
+		int col = matrix[0].length;
+		int r, c;
+		for (r = 0; r < row; r++)
+		{
+			for (c = 0; c < col; c++) {
+				System.out.printf("%d\t", matrix[r][c]);
+			}
+			System.out.println();
 		}
 	}
 
@@ -406,6 +438,14 @@ public class ImageDisplay {
 		return rgb;
 	}
 
+
+	/**
+	 * convert a rgb pixel to grey scale pixel
+	 * @param R
+	 * @param G
+	 * @param B
+	 * @return
+	 */
 	private int[] convertRGBtoGreyscale(int R, int G, int B)
 	{
 		int[] rgb = new int[3];
@@ -416,6 +456,13 @@ public class ImageDisplay {
 		return rgb;
 	}
 
+	/**
+	 * filter out pixels with hue value between h1 and h2
+	 * @param img input image
+	 * @param h1 hue value 1
+	 * @param h2 hue value 2
+	 * @return filter image
+	 */
 	private int[][][] filterImg(int[][][] img, double h1, double h2)
 	{
 		int height = img.length; // rows
@@ -447,15 +494,556 @@ public class ImageDisplay {
 		return result;
 	}
 
+	/**
+	 * 8 * 8 dct
+	 * @param imageValues a 8 by 8 matrix
+	 * @return a 8 by 8 matrix result
+	 */
+	private double[][] dctTransform(int[][] imageValues)
+	{
+		int u, v, x, y;
+		double[][] dct = new double[8][8];
+		double cu, cv, dct1, sum;
+
+		for (u = 0; u < 8; u++)
+		{
+			for (v = 0; v < 8; v++)
+			{
+				// get cu amd cv
+				if (u == 0)
+				{
+					cu = 1 / Math.sqrt(2);
+				}
+				else
+				{
+					cu = 1;
+				}
+
+				if (v == 0)
+				{
+					cv = 1 / Math.sqrt(2);
+				}
+				else
+				{
+					cv = 1;
+				}
+
+				// sum of cosine
+				sum = 0;
+				for (x = 0; x < 8; x++)
+				{
+					for (y = 0; y < 8; y++)
+					{
+						dct1 = imageValues[x][y] * Math.cos((2 * x + 1.0d) * u * Math.PI / 16.0d) *
+								Math.cos((2 * y + 1.0d) * v * Math.PI / 16.0d);
+						sum += dct1;
+					}
+				}
+				dct[u][v] = cu * cv * sum / 4.0d;
+			}
+		}
+
+		return dct;
+	}
+
+
+	/**
+	 * inverse dct on 8 by 8 block
+	 * @param dctValues 8 by 8 block
+	 * @return same size
+	 */
+	private double[][] inverseDctTransform(double[][] dctValues)
+	{
+		int u, v, x, y;
+		double[][] imageValues = new double[8][8];
+		double cu, cv, idct1, sum;
+
+		for (x = 0; x < 8; x++)
+		{
+			for (y = 0; y < 8; y++)
+			{
+				// sum of cosine
+				sum = 0;
+				for (u = 0; u< 8; u++)
+				{
+					for (v = 0; v < 8; v++)
+					{
+						// get cu amd cv
+						if (u == 0)
+						{
+							cu = 1 / Math.sqrt(2);
+						}
+						else
+						{
+							cu = 1;
+						}
+
+						if (v == 0)
+						{
+							cv = 1 / Math.sqrt(2);
+						}
+						else
+						{
+							cv = 1;
+						}
+						idct1 = cu * cv * dctValues[u][v] *
+								Math.cos((2 * x + 1.0d) * u * Math.PI / 16.0d) *
+								Math.cos((2 * y + 1.0d) * v * Math.PI / 16.0d);
+						sum += idct1;
+					}
+				}
+				imageValues[x][y] = sum / 4.0d;
+			}
+		}
+
+		return imageValues;
+	}
+
+
+	/**
+	 * get the first m coefficients in zig-zag order, zeroing out others
+	 * @param matrix a 8 by 8 matrix
+	 * @param limit first m coefficients to keep
+	 * @return
+	 */
+	private double[][] getFirstMCoefficients(double[][] matrix, int limit)
+	{
+		boolean overLimit = false;
+
+		// Variables to track the size of the matrix
+		int N = 8;
+		int M = 8;
+
+		int row = 0, column = 0;
+
+		int direction = 1;
+
+		double[][] result = new double[8][8];
+		int count = 0;
+
+		while (row < 8 && column < 8)
+		{
+			// check limit
+			if (overLimit)
+			{
+				result[row][column] = 0.0d;
+			}
+			else {
+				result[row][column] = matrix[row][column];
+				if (count >= limit-1)
+				{
+					overLimit = true;
+				}
+			}
+			count += 1;
+
+			// move along in the current diagonal
+			// if going up [i, j] -> [i - 1, j + 1]
+			// if going down [i, j] -> [i + 1][j - 1]
+			int new_row = row + (direction == 1 ? -1 : 1);
+			int new_column = column + (direction == 1 ? 1 : -1);
+
+			// Checking if the next element in the diagonal is within the
+			// bounds of the matrix or not. If it's not within the bounds,
+			// we have to find the next head.
+			if (new_row < 0 || new_row == 8 || new_column < 0 || new_column == 8) {
+
+				// If the current diagonal was going in the upwards
+				// direction.
+				if (direction == 1) {
+
+					// For an upwards going diagonal having [i, j] as its tail
+					// If [i, j + 1] is within bounds, then it becomes
+					// the next head. Otherwise, the element directly below
+					// i.e. the element [i + 1, j] becomes the next head
+					if (column == 8-1)
+					{
+						row += 1;
+					}
+					if (column < 8-1)
+					{
+						column += 1;
+					}
+
+				} else {
+
+					// For a downwards going diagonal having [i, j] as its tail
+					// if [i + 1, j] is within bounds, then it becomes
+					// the next head. Otherwise, the element directly below
+					// i.e. the element [i, j + 1] becomes the next head
+					if (row == 8-1)
+					{
+						column += 1;
+					}
+					if (row < 8-1)
+					{
+						row += 1;
+					}
+				}
+
+				// flip the direction
+				direction = 1 - direction;
+
+			} else {
+				row = new_row;
+				column = new_column;
+			}
+		}
+		return result;
+	}
+
+
+	/**
+	 * use dct compression to compress a 8 by 8 block
+	 * @param block image block
+	 * @param limit  limit of coefficients
+	 * @return compressed image
+	 */
+	private int[][] dctCompressionBlock(int[][] block, int limit)
+	{
+		double[][] dctValues = dctTransform(block);
+		double[][] partDctValues = getFirstMCoefficients(dctValues, limit);
+		double[][] idctValues = inverseDctTransform(partDctValues);
+
+		// round values
+		int[][] imageValues = new int[8][8];
+		int r, c;
+		for (r = 0; r < 8; r++)
+		{
+			for (c = 0; c < 8; c++)
+			{
+				int v = (int)Math.round(idctValues[r][c]);
+				if (v > 255){
+					v = 255;
+				}
+				if (v < 0){
+					v = 0;
+				}
+				imageValues[r][c] = v;
+			}
+		}
+		return imageValues;
+	}
+
+
+	/**
+	 * use dct compression to compress a channel
+	 * @param channel
+	 * @param numberOfCoefficients
+	 * @return
+	 */
+	private int[][] dctCompressionChannel(int[][] channel, int numberOfCoefficients)
+	{
+		int m = (int) Math.ceil(((double)numberOfCoefficients)/4096.0d);
+
+		// 8 by 8 block
+		int row = channel.length;
+		int col = channel[0].length;
+		int[][] result = new int[row][col];
+		int r, c;
+		int[][] block = new int[8][8];
+		for (r = 0; r < row; r += 8)
+		{
+			for (c = 0; c < col; c += 8)
+			{
+				int i, j; // index in block
+				// get block
+				for (i = 0; i < 8; i++)
+				{
+					for (j = 0; j < 8; j++)
+					{
+						block[i][j] = channel[r + i][c + j];
+					}
+				}
+				// process block
+				block = dctCompressionBlock(block, m);
+//				printIntMatrix(block);
+				// put block on channel
+				for (i = 0; i < 8; i++)
+				{
+					for (j = 0; j < 8; j++)
+					{
+						result[r + i][c + j] = block[i][j];
+					}
+				}
+			}
+		}
+		return result;
+	}
+
+
+	/**
+	 * use dct compression to compress image
+	 * @param rgbImage
+	 * @param numberOfCoefficients specific: 262144, 65536, 16384,4096, 1024, 256, 64, 16, 4, 1
+	 * @return
+	 */
+	private int[][][] dctCompressionImage(int[][][] rgbImage, int numberOfCoefficients)
+	{
+		int row = rgbImage.length;
+		int col = rgbImage[0].length;
+		int[][][] result = new int[row][col][3];
+		// split image to three channels
+		int[][] red = new int[row][col];
+		int[][] green = new int[row][col];
+		int[][] blue = new int[row][col];
+		int r, c;
+		for (r = 0; r < row; r++)
+		{
+			for (c = 0; c < col; c++)
+			{
+				red[r][c] = rgbImage[r][c][0];
+				green[r][c] = rgbImage[r][c][1];
+				blue[r][c] = rgbImage[r][c][2];
+			}
+		}
+
+		red = dctCompressionChannel(red, numberOfCoefficients);
+		green = dctCompressionChannel(green, numberOfCoefficients);
+		blue = dctCompressionChannel(blue, numberOfCoefficients);
+
+		// merge three channels to image
+		for (r = 0; r < row; r++)
+		{
+			for (c = 0; c < col; c++)
+			{
+				result[r][c][0] = red[r][c];
+				result[r][c][1] = green[r][c];
+				result[r][c][2] = blue[r][c];
+			}
+		}
+		return result;
+	}
+
+
+	/**
+	 * apply low pass and high pass on an array, dwt
+	 * @param array length must be divided by 2
+	 * @return same size as input array
+	 */
+	private double[] dwtOnArray(double[] array)
+	{
+		int len = array.length;
+		int halfLen = len / 2;
+		double[] result = new double[len];
+		int i;
+		for (i = 0; i < len; i += 2)
+		{
+			result[i/2] = (array[i] + array[i+1]) / 2.0d;
+			result[halfLen + i/2] = (array[i] - array[i+1]) / 2.0d;
+		}
+		return result;
+	}
+
+
+	/**
+	 * apply inverse dwt on dwt array
+	 * @param dwtArray length must be divided by 2
+	 * @return same size as input array
+	 */
+	private double[] inverseDwtOnArray(double[] dwtArray)
+	{
+		int len = dwtArray.length;
+		int halfLen = len / 2;
+		double[] result = new double[len];
+		int i;
+		for (i = 0; i < len; i += 2)
+		{
+			double sum = dwtArray[i/2]*2.0d;
+			double diff = dwtArray[halfLen + i/2]*2.0d;
+			result[i] = (sum + diff) / 2.0d;
+			result[i+1] = (sum - diff) / 2.0d;
+		}
+		return result;
+	}
+
+
+	/**
+	 * apply dwt compression on channel pixels
+	 * @param channel pixels in a color channel
+	 * @param numberOfCoefficients can be divided by 4,
+	 *                   specific: 262144, 65536, 16384,4096, 1024, 256, 64, 16, 4, 1
+	 * @return channel pixels after compression
+	 */
+	private int[][] dwtCompressionChannel(int[][] channel, int numberOfCoefficients)
+	{
+		int row = channel.length;
+		int col = channel[0].length;
+		int r, c;
+		int[][] result = new int[row][col];
+
+		int totalLevel = (int)(Math.log(row) / Math.log(2)); // 9 for 512 * 512 image
+
+		double[][] dwtChannelValues = new double[row][col];
+		// convert to double channel values
+		for (r=0; r<row; r++)
+		{
+			for (c=0; c<col; c++)
+			{
+				dwtChannelValues[r][c] = channel[r][c];
+			}
+		}
+
+		int gridRow, gridCol;
+		double[] currentRow, currentCol;
+		double[] newRow, newCol;
+		// apply dwt on channel
+		for (int l = 0; l < totalLevel; l++)
+		{
+			gridCol = col / (int)(Math.pow(2, l));
+			gridRow = row / (int)(Math.pow(2, l));
+			// apply inverse dwt on columns
+			for (c = 0; c < gridCol; c++)
+			{
+				// get current column
+				currentCol = new double[gridRow];
+				for (r = 0; r < gridRow; r++)
+				{
+					currentCol[r] = dwtChannelValues[r][c];
+				}
+				newCol = dwtOnArray(currentCol);
+				// update channel values
+				for (r = 0; r < gridRow; r++)
+				{
+					dwtChannelValues[r][c] = newCol[r];
+				}
+			}
+			// apply inverse dwt on rows
+			for (r = 0; r < gridRow; r++)
+			{
+				// get current row
+				currentRow = new double[gridCol];
+				for (c = 0; c < gridCol; c++)
+				{
+					currentRow[c] = dwtChannelValues[r][c];
+				}
+				newRow = dwtOnArray(currentRow);
+				// update channel values
+				for (c = 0; c < gridCol; c++)
+				{
+					dwtChannelValues[r][c] = newRow[c];
+				}
+			}
+		}
+
+		// keep the values in range
+		int width = (int)Math.round(Math.sqrt(numberOfCoefficients));
+		for (r = 0; r < row; r++)
+		{
+			for (c = 0; c < col; c++)
+			{
+				if (r > width || c > width)
+				{
+					dwtChannelValues[r][c] = 0.0d;
+				}
+			}
+		}
+
+		// inverse dwt
+		for (int l = totalLevel-1; l >= 0; l--)
+		{
+			gridCol = col / (int)(Math.pow(2, l));
+			gridRow = row / (int)(Math.pow(2, l));
+			// apply inverse dwt on columns
+			for (c = 0; c < gridCol; c++)
+			{
+				// get current column
+				currentCol = new double[gridRow];
+				for (r = 0; r < gridRow; r++)
+				{
+					currentCol[r] = dwtChannelValues[r][c];
+				}
+				newCol = inverseDwtOnArray(currentCol);
+				// update channel values
+				for (r = 0; r < gridRow; r++)
+				{
+					dwtChannelValues[r][c] = newCol[r];
+				}
+			}
+			// apply inverse dwt on rows
+			for (r = 0; r < gridRow; r++)
+			{
+				// get current row
+				currentRow = new double[gridCol];
+				for (c = 0; c < gridCol; c++)
+				{
+					currentRow[c] = dwtChannelValues[r][c];
+				}
+				newRow = inverseDwtOnArray(currentRow);
+				// update channel values
+				for (c = 0; c < gridCol; c++)
+				{
+					dwtChannelValues[r][c] = newRow[c];
+				}
+			}
+		}
+
+		// convert to int
+		for (r = 0; r < row; r++)
+		{
+			for (c = 0; c < col; c++)
+			{
+				int v = (int)Math.round(dwtChannelValues[r][c]);
+				if (v > 255){
+					v = 255;
+				}
+				if (v < 0)
+				{
+					v = 0;
+				}
+				result[r][c] = v;
+			}
+		}
+
+		return result;
+	}
+
+
+	private int[][][] dwtCompressionImage(int[][][] rgbImage, int numberOfCoefficients)
+	{
+		int row = rgbImage.length;
+		int col = rgbImage[0].length;
+		int[][][] result = new int[row][col][3];
+		// split image to three channels
+		int[][] red = new int[row][col];
+		int[][] green = new int[row][col];
+		int[][] blue = new int[row][col];
+		int r, c;
+		for (r = 0; r < row; r++)
+		{
+			for (c = 0; c < col; c++)
+			{
+				red[r][c] = rgbImage[r][c][0];
+				green[r][c] = rgbImage[r][c][1];
+				blue[r][c] = rgbImage[r][c][2];
+			}
+		}
+
+		red = dwtCompressionChannel(red, numberOfCoefficients);
+		green = dwtCompressionChannel(green, numberOfCoefficients);
+		blue = dwtCompressionChannel(blue, numberOfCoefficients);
+
+		// merge three channels to image
+		for (r = 0; r < row; r++)
+		{
+			for (c = 0; c < col; c++)
+			{
+				result[r][c][0] = red[r][c];
+				result[r][c][1] = green[r][c];
+				result[r][c][2] = blue[r][c];
+			}
+		}
+		return result;
+	}
+
+
 	public void showIms(String[] args)
 	{
 		// Read a parameter from command line
 		String imgPath = args[0];
-		String paramH1 = args[1];
-		String paramH2 = args[2];
+		String param1 = args[1];
 		System.out.println("Image path: " + imgPath);
-		System.out.println("The h1 parameter was: " + Integer.parseInt(paramH1));
-		System.out.println("The h2 parameter was: " + Integer.parseInt(paramH2));
+		System.out.println("The h1 parameter was: " + Integer.parseInt(param1));
 
 		// Read in the original image
 		originalImg = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
@@ -465,10 +1053,32 @@ public class ImageDisplay {
 
 		// Processed image
 		processedImg = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+		processedImg2 = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
 		byte[] imgBytes = readImg(width, height, imgPath);
 		int[][][] rgbImg = convertImgByteToRGB(width, height, imgBytes);
-		int[][][] finalImg = filterImg(rgbImg, Double.parseDouble(paramH1), Double.parseDouble(paramH2));
-		readImageIntoBuffer(finalImg, processedImg);
+
+		// test code here
+//		double[] test = new double[] {9., 7., 3., 5., 3., 5., 7., 9., 10., 12.,};
+//		double[] lowHighPass = dwtOnArray(test);
+//		for (int i = 0; i < test.length; i++)
+//		{
+//			System.out.printf("%f\t", lowHighPass[i]);
+//		}
+//		System.out.print("\n");
+//
+//		double[] inverse = inverseDwtOnArray(lowHighPass);
+//		for (int i = 0; i < test.length; i++)
+//		{
+//			System.out.printf("%f\t", inverse[i]);
+//		}
+
+		// add code here
+		int numberOfCoefficients = Integer.parseInt(param1);
+		int[][][] dctCompressedImage = dctCompressionImage(rgbImg, numberOfCoefficients);
+		readImageIntoBuffer(dctCompressedImage, processedImg);
+		int[][][] dwtCompressedImage = dwtCompressionImage(rgbImg, numberOfCoefficients);
+		readImageIntoBuffer(dwtCompressedImage, processedImg2);
+		// end of code here
 
 		// Use label to display the image
 		frame = new JFrame();
@@ -477,6 +1087,7 @@ public class ImageDisplay {
 
 		lbIm1 = new JLabel(new ImageIcon(originalImg));
 		lbIm2 = new JLabel(new ImageIcon(processedImg));
+		lbIm3 = new JLabel(new ImageIcon(processedImg2));
 
 		GridBagConstraints c = new GridBagConstraints();
 		c.fill = GridBagConstraints.HORIZONTAL;
@@ -490,6 +1101,7 @@ public class ImageDisplay {
 		c.gridy = 1;
 		frame.getContentPane().add(lbIm1);
 		frame.getContentPane().add(lbIm2);
+		frame.getContentPane().add(lbIm3);
 
 		frame.pack();
 		frame.setVisible(true);
